@@ -1,0 +1,242 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER & ROLE MODELS
+// ============================================
+
+model User {
+  id                    Int                    @id @default(autoincrement())
+  email                 String                 @unique
+  password              String
+  roleId                Int?
+  role                  Role?                  @relation(fields: [roleId], references: [id])
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @default(now()) @updatedAt
+  createdCourses        Course[]               @relation("CourseCreator")
+  enrollments           Enrollment[]           @relation("EnrollmentUser")
+  enrollmentsByMe       Enrollment[]           @relation("EnrollmentEnroller")
+  moduleProgresses      ModuleProgress[]
+  assessmentSubmissions AssessmentSubmission[] @relation("AssessmentSubmissionUser")
+}
+
+model Role {
+  id               Int              @id @default(autoincrement())
+  name             String           @unique
+  users            User[]
+  roleCapabilities RoleCapability[]
+}
+
+model Capability {
+  id               Int              @id @default(autoincrement())
+  name             String           @unique
+  roleCapabilities RoleCapability[]
+}
+
+model RoleCapability {
+  id           Int        @id @default(autoincrement())
+  role         Role       @relation(fields: [roleId], references: [id])
+  roleId       Int
+  capability   Capability @relation(fields: [capabilityId], references: [id])
+  capabilityId Int
+
+  @@unique([roleId, capabilityId])
+}
+
+// ============================================
+// COURSE MODELS
+// ============================================
+
+model Course {
+  id          Int               @id @default(autoincrement())
+  title       String
+  description String?
+  createdById Int
+  createdBy   User              @relation("CourseCreator", fields: [createdById], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  modules     Module[]
+  enrollments Enrollment[]
+  categories  Course_Category[] @relation("CourseCategories")
+  assessments Assessment[]
+}
+
+model Course_Category {
+  id      Int      @id @default(autoincrement())
+  name    String   @unique
+  courses Course[] @relation("CourseCategories")
+}
+
+model Module {
+  id               Int              @id @default(autoincrement())
+  title            String
+  content          String?
+  courseId         Int
+  course           Course           @relation(fields: [courseId], references: [id])
+  order            Int
+  videoLink        String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  moduleProgresses ModuleProgress[]
+}
+
+model Enrollment {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation("EnrollmentUser", fields: [userId], references: [id])
+  courseId     Int
+  course       Course   @relation(fields: [courseId], references: [id])
+  enrolledById Int
+  enrolledBy   User     @relation("EnrollmentEnroller", fields: [enrolledById], references: [id])
+  enrolledAt   DateTime @default(now())
+  progress     Float    @default(0.0)
+  completed    Boolean  @default(false)
+
+  @@unique([userId, courseId])
+}
+
+model ModuleProgress {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  moduleId  Int
+  module    Module   @relation(fields: [moduleId], references: [id])
+  completed Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, moduleId])
+}
+
+// ============================================
+// ASSESSMENT MODULE MODELS
+// ============================================
+
+model Assessment {
+  id                 Int                    @id @default(autoincrement())
+  title              String
+  description        String?                @db.Text
+  courseId           Int
+  course             Course                 @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  timeLimit          Int?
+  totalMarks         Int                    @default(100)
+  passingMarks       Int                    @default(40)
+  attempts           Int                    @default(1)
+  isActive           Boolean                @default(true)
+  randomizeQuestions Boolean                @default(false)
+  showResults        Boolean                @default(true)
+  allowReview        Boolean                @default(false)
+  startDate          DateTime?
+  endDate            DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  questions          Question[]
+  submissions        AssessmentSubmission[]
+
+  @@map("assessments")
+}
+
+model Question {
+  id            Int                @id @default(autoincrement())
+  assessmentId  Int
+  assessment    Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  questionText  String             @db.Text
+  questionType  QuestionType
+  marks         Int                @default(1)
+  order         Int
+  isActive      Boolean            @default(true)
+  explanation   String?            @db.Text
+  imageUrl      String?
+  attachmentUrl String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  options       QuestionOption[]
+  answers       SubmissionAnswer[]
+
+  @@map("questions")
+}
+
+model QuestionOption {
+  id              Int                @id @default(autoincrement())
+  questionId      Int
+  question        Question           @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  optionText      String             @db.Text
+  isCorrect       Boolean            @default(false)
+  order           Int
+  createdAt       DateTime           @default(now())
+  selectedAnswers SubmissionAnswer[]
+
+  @@map("question_options")
+}
+
+model AssessmentSubmission {
+  id            Int                @id @default(autoincrement())
+  assessmentId  Int
+  assessment    Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  userId        Int
+  user          User               @relation("AssessmentSubmissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  startTime     DateTime           @default(now())
+  endTime       DateTime?
+  status        SubmissionStatus   @default(IN_PROGRESS)
+  totalMarks    Int
+  obtainedMarks Int                @default(0)
+  percentage    Float              @default(0)
+  isPassed      Boolean            @default(false)
+  attemptNumber Int                @default(1)
+  timeSpent     Int?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  answers       SubmissionAnswer[]
+
+  @@unique([assessmentId, userId, attemptNumber])
+  @@map("assessment_submissions")
+}
+
+model SubmissionAnswer {
+  id               Int                  @id @default(autoincrement())
+  submissionId     Int
+  submission       AssessmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  questionId       Int
+  question         Question             @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptionId Int?
+  selectedOption   QuestionOption?      @relation(fields: [selectedOptionId], references: [id], onDelete: SetNull)
+  textAnswer       String?              @db.Text
+  isCorrect        Boolean              @default(false)
+  marksObtained    Int                  @default(0)
+  timeSpent        Int?
+  createdAt        DateTime             @default(now())
+
+  @@unique([submissionId, questionId])
+  @@map("submission_answers")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  LONG_ANSWER
+  FILL_IN_BLANK
+}
+
+enum SubmissionStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+  TIME_UP
+}
