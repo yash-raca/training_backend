@@ -32,7 +32,7 @@ const userRoutes = require('./routes/user');
 
 // Import assessment routes
 const assessmentRoutes = require('./routes/assessment');
-const assessmentAdminRoutes = require('./routes/assessment');
+const assessmentAdminRoutes = require('./routes/assessmentAdmin');
 
 // Register routes
 app.use('/api/auth', authRoutes);
