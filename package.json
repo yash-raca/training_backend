@@ -20,6 +20,7 @@
     "express": "^5.1.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
     "prisma": "^6.17.1",
     "react-beautiful-dnd": "^13.1.1"
   },

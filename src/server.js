@@ -11,6 +11,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve uploaded files (ADD THIS LINE)
+app.use('/uploads', express.static('uploads'));
+
 // Simple test route
 app.get('/', (req, res) => {
   res.send('Backend server is running!');

@@ -22,6 +22,10 @@ model User {
   id                    Int                    @id @default(autoincrement())
   email                 String                 @unique
   password              String
+  fullName              String? // NEW: Full Name
+  phoneNumber           String? // NEW: Phone Number
+  photo                 String? // NEW: Photo URL
+  designation           String? // NEW: Designation
   roleId                Int?
   role                  Role?                  @relation(fields: [roleId], references: [id])
   createdAt             DateTime               @default(now())

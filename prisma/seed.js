@@ -17,7 +17,7 @@ async function main() {
     });
   }
 
-  // 2. Create default capabilities (including assessment ones)
+  // 2. Create default capabilities
   const capabilities = [
     // course & module caps
     'view_courses','view_single_course','create_courses','update_course','delete_course',
@@ -25,7 +25,12 @@ async function main() {
     'update_module','delete_module','reorder_module','update_module_completion_status',
     // role & capability management
     'view_roles','view_capabilities','create_roles','create_capabilities','assign_capabilities_to_role',
-    'manage_users','view_course_categories','create_course_categories','view_enrolled_courses_by_user_id',
+    'view_course_categories','create_course_categories','view_enrolled_courses_by_user_id',
+    // user management caps (NEW - unique per endpoint)
+    'create_user','view_all_users','view_user_by_id','update_user','delete_user',
+    'search_users','change_user_role',
+    // user profile caps (NEW)
+    'view_own_profile','update_own_profile',
     // assessment caps
     'view_assessments','manage_assessments'
   ];
@@ -53,8 +58,12 @@ async function main() {
   }
 
   // Trainer: selected caps
-  const trainerCaps = ['view_courses','view_single_course','create_courses','update_course',
-    'enroll_courses','view_modules','create_modules','update_module','view_assessments','manage_assessments'];
+  const trainerCaps = [
+    'view_courses','view_single_course','create_courses','update_course',
+    'enroll_courses','view_modules','create_modules','update_module',
+    'view_assessments','manage_assessments',
+    'view_own_profile','update_own_profile'
+  ];
   for (const name of trainerCaps) {
     const cap = allCaps.find(c => c.name === name);
     if (cap) {
@@ -67,7 +76,11 @@ async function main() {
   }
 
   // Trainee: selected caps
-  const traineeCaps = ['view_courses','view_single_course','get_single_module','view_modules','view_assessments'];
+  const traineeCaps = [
+    'view_courses','view_single_course','get_single_module','view_modules',
+    'view_assessments',
+    'view_own_profile','update_own_profile'
+  ];
   for (const name of traineeCaps) {
     const cap = allCaps.find(c => c.name === name);
     if (cap) {
@@ -79,21 +92,42 @@ async function main() {
     }
   }
 
-  // 4. Create sample users
+  // 4. Create sample users (with profile fields)
   const adminUser = await prisma.user.upsert({
     where: { email: 'admin@example.com' },
     update: {},
-    create: { email: 'admin@example.com', password: 'password', roleId: adminRole.id }
+    create: { 
+      email: 'admin@example.com', 
+      password: 'password', 
+      roleId: adminRole.id,
+      fullName: 'Admin User',
+      phoneNumber: '+91-9999999999',
+      designation: 'System Administrator'
+    }
   });
   const trainerUser = await prisma.user.upsert({
     where: { email: 'trainer@example.com' },
     update: {},
-    create: { email: 'trainer@example.com', password: 'password', roleId: trainerRole.id }
+    create: { 
+      email: 'trainer@example.com', 
+      password: 'password', 
+      roleId: trainerRole.id,
+      fullName: 'Trainer User',
+      phoneNumber: '+91-8888888888',
+      designation: 'Senior Trainer'
+    }
   });
   const traineeUser = await prisma.user.upsert({
     where: { email: 'trainee@example.com' },
     update: {},
-    create: { email: 'trainee@example.com', password: 'password', roleId: traineeRole.id }
+    create: { 
+      email: 'trainee@example.com', 
+      password: 'password', 
+      roleId: traineeRole.id,
+      fullName: 'Trainee User',
+      phoneNumber: '+91-7777777777',
+      designation: 'Student'
+    }
   });
 
   // 5. Create sample course (if not exists) and enroll trainee
