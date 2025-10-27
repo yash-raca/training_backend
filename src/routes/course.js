@@ -16,7 +16,7 @@ router.get('/courses',
     try {
       const courses = await prisma.course.findMany({
         include: {
-          createdBy: { select: { id: true, email: true } },
+          createdBy: { select: { id: true, email: true, fullName: true } },
           modules: true,
           _count: { select: { enrollments: true } },
           categories: true
@@ -50,7 +50,7 @@ router.post('/courses',
           } : {})
         },
         include: {
-          createdBy: { select: { id: true, email: true } },
+          createdBy: { select: { id: true, email: true, fullName: true } },
           categories: true  // includes Course_Category[]
         }
       });
@@ -73,7 +73,7 @@ router.get('/courses/:id',
       const course = await prisma.course.findUnique({
         where: { id: parseInt(req.params.id) },
         include: {
-          createdBy: { select: { id: true, email: true } },
+          createdBy: { select: { id: true, email: true, fullName: true } },
           modules: { orderBy: { order: 'asc' } },
           enrollments: { include: { user: { select: { id: true, email: true } } } },
           categories: true
@@ -126,7 +126,7 @@ router.put('/courses/:id',
           })
         },
         include: {
-          createdBy: { select: { id: true, email: true } },
+          createdBy: { select: { id: true, email: true, fullName: true } },
           categories: true
         }
       });
