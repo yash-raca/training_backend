@@ -47,6 +47,7 @@ model Role {
 model Capability {
   id               Int              @id @default(autoincrement())
   name             String           @unique
+  category         String // optional for now
   roleCapabilities RoleCapability[]
 }
 
