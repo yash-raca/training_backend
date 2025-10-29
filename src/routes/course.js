@@ -8,7 +8,7 @@ const prisma = new PrismaClient();
 
 // ===== COURSE MANAGEMENT ROUTES =====
 
-// Get all courses (public)
+// Get all courses
 router.get('/courses',
   authenticateToken,
   authorize('view_courses'),
@@ -30,7 +30,7 @@ router.get('/courses',
   }
 );
 
-// Create a new course (protected)
+// Create a new course
 router.post('/courses',
   authenticateToken,
   authorize('create_courses'),
@@ -236,7 +236,7 @@ router.get('/users/:userId/enrolled-courses',
       const enrollments = await prisma.enrollment.findMany({
         where: { userId },
         include: {
-          enrolledBy: { select: { id: true, email: true } },
+          enrolledBy: { select: { id: true, email: true, fullName: true } },
           course: {
             select: {
               id: true,
@@ -280,7 +280,8 @@ router.get('/users/:userId/enrolled-courses',
         categories: enrollment.course.categories,
         enrolledBy: {
           id: enrollment.enrolledBy.id,
-          email: enrollment.enrolledBy.email
+          email: enrollment.enrolledBy.email,
+          fullName: enrollment.enrolledBy.fullName
         }
       }));
 
@@ -378,6 +379,7 @@ router.get('/courses/:courseId/modules',
   authenticateToken,
   authorize('view_modules'),
   async (req, res) => {
+    const userId = req.user.userId;
     try {
       const courseId = parseInt(req.params.courseId);
       const course = await prisma.course.findUnique({ where: { id: courseId } });
@@ -394,10 +396,50 @@ router.get('/courses/:courseId/modules',
           order: true,
           videoLink: true,
           createdAt: true,
-          updatedAt: true
+          updatedAt: true,
+          moduleProgresses: {
+            where: {userId: userId},
+            select: {
+              completed: true,
+            }
+          }
         }
       });
-      res.json(modules);
+
+      let previousModuleIsComplete = true; // Module before the first one is considered unlocked
+
+      const modulesWithStatus = modules.map((module, index) => {
+        const progress = module.moduleProgresses[0];
+        const isCompleted = progress && progress.completed;
+        let status;
+
+        if (isCompleted) {
+            status = 'Completed';
+            previousModuleIsComplete = true; // Allow the next module to be accessed
+        } 
+        else if (previousModuleIsComplete) { 
+            // If the previous module was completed/unlocked, this one is the current focus
+            status = 'In Progress';
+            previousModuleIsComplete = false; // Lock all subsequent modules until this one is done
+        }
+        else {
+            status = 'Locked'; 
+        }
+
+        // Assessment status adjustment
+        if (status === 'In Progress' && module.title.toLowerCase().includes('assessment')) {
+             status = 'Ready'; 
+        }
+
+        return {
+            ...module,
+            status: status,
+            moduleProgresses: undefined, // Clean up nested progress data
+        };
+      });
+      
+      res.json(modulesWithStatus); 
+
     } catch (error) {
       console.error('Error fetching modules:', error);
       res.status(500).json({ message: 'Error fetching modules' });
@@ -587,8 +629,5 @@ router.patch('/modules/:moduleId/status',
   }
 );
 
-router.patch('/test-patch', (req, res) => {
-  res.send('Patch route working');
-});
 
 module.exports = router;

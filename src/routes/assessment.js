@@ -13,7 +13,7 @@ const prisma = new PrismaClient();
  * GET /api/assessments/student/my-assessments
  * Get all assessments from enrolled courses
  */
-router.get('/student/my-assessments', authenticateToken, async (req, res) => {
+router.get('/student/my-assessments', authenticateToken, authorize('view_all_enrolled_assessment'), async (req, res) => {
   try {
     const userId = req.user.userId;
 
@@ -117,7 +117,7 @@ router.get('/student/my-assessments', authenticateToken, async (req, res) => {
  * GET /api/assessments/student/assessments/:id/details
  * Get assessment details before starting
  */
-router.get('/student/assessments/:id/details', authenticateToken, async (req, res) => {
+router.get('/student/assessments/:id/details', authenticateToken, authorize('view_enrolled_assessment_by_id'), async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
@@ -204,7 +204,7 @@ router.get('/student/assessments/:id/details', authenticateToken, async (req, re
  * POST /api/assessments/student/assessments/:id/start
  * Start taking an assessment
  */
-router.post('/student/assessments/:id/start', authenticateToken, async (req, res) => {
+router.post('/student/assessments/:id/start', authenticateToken, authorize('start_taking_assessment'), async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
@@ -354,7 +354,7 @@ router.post('/student/assessments/:id/start', authenticateToken, async (req, res
  * POST /api/assessments/student/save-answer
  * Save/update answer for a question
  */
-router.post('/student/save-answer', authenticateToken, async (req, res) => {
+router.post('/student/save-answer', authenticateToken, authorize('save_answer'), async (req, res) => {
   try {
     const { submissionId, questionId, selectedOptionId, textAnswer, timeSpent } = req.body;
     const userId = req.user.userId;
@@ -446,7 +446,7 @@ router.post('/student/save-answer', authenticateToken, async (req, res) => {
  * POST /api/assessments/student/assessments/:id/submit
  * Final submission of assessment
  */
-router.post('/student/assessments/:id/submit', authenticateToken, async (req, res) => {
+router.post('/student/assessments/:id/submit', authenticateToken, authorize('submit_assessment'), async (req, res) => {
   try {
     const { id } = req.params;
     const { submissionId } = req.body;
@@ -560,7 +560,7 @@ router.post('/student/assessments/:id/submit', authenticateToken, async (req, re
  * GET /api/assessments/student/my-results
  * Get all results for the logged-in student
  */
-router.get('/student/my-results', authenticateToken, async (req, res) => {
+router.get('/student/my-results', authenticateToken, authorize('get_user_result'), async (req, res) => {
   try {
     const userId = req.user.userId;
 
@@ -621,7 +621,7 @@ router.get('/student/my-results', authenticateToken, async (req, res) => {
  * GET /api/assessments/student/submissions/:id/review
  * Review a specific submission with detailed answers
  */
-router.get('/student/submissions/:id/review', authenticateToken, async (req, res) => {
+router.get('/student/submissions/:id/review', authenticateToken, authorize('review_submission'), async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.userId;
@@ -725,7 +725,7 @@ router.get('/student/submissions/:id/review', authenticateToken, async (req, res
  * GET /api/assessments/student/courses/:courseId/progress
  * Get assessment progress for a specific course
  */
-router.get('/student/courses/:courseId/progress', authenticateToken, async (req, res) => {
+router.get('/student/courses/:courseId/progress', authenticateToken, authorize('view_assessment_progress'), async (req, res) => {
   try {
     const { courseId } = req.params;
     const userId = req.user.userId;

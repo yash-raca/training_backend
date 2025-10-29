@@ -15,48 +15,72 @@ async function main() {
 
   // 2. Create default capabilities
   const capabilities = [
-    // Courses
-    { name: "view_courses", category: "courses" },
-    { name: "view_single_course", category: "courses" },
-    { name: "create_courses", category: "courses" },
-    { name: "update_course", category: "courses" },
-    { name: "delete_course", category: "courses" },
-    { name: "enroll_courses", category: "courses" },
-    { name: "unenroll_courses", category: "courses" },
-    { name: "view_modules", category: "courses" },
-    { name: "create_modules", category: "courses" },
-    { name: "get_single_module", category: "courses" },
-    { name: "update_module", category: "courses" },
-    { name: "delete_module", category: "courses" },
-    { name: "reorder_module", category: "courses" },
-    { name: "update_module_completion_status", category: "courses" },
-
-    // Roles
-    { name: "view_roles", category: "roles" },
-    { name: "view_capabilities", category: "roles" },
-    { name: "create_roles", category: "roles" },
-    { name: "create_capabilities", category: "roles" },
-    { name: "assign_capabilities_to_role", category: "roles" },
-    { name: "view_course_categories", category: "roles" },
-    { name: "create_course_categories", category: "roles" },
-    { name: "view_enrolled_courses_by_user_id", category: "roles" },
-
-    // Assessments
-    { name: "view_assessments", category: "assessments" },
-    { name: "manage_assessments", category: "assessments" },
-
-    // User Management
-    { name: "create_user", category: "user management" },
-    { name: "view_all_users", category: "user management" },
-    { name: "view_user_by_id", category: "user management" },
-    { name: "update_user", category: "user management" },
-    { name: "delete_user", category: "user management" },
-    { name: "search_users", category: "user management" },
-    { name: "change_user_role", category: "user management" },
-
-    // Profile
-    { name: "view_own_profile", category: "user profile" },
-    { name: "update_own_profile", category: "user profile" },
+    // User Profile Management
+    { name: "view_own_profile", category: "profile" },
+    { name: "update_own_profile", category: "profile" },
+    { name: "upload_profile_photo", category: "profile" },
+    // User Directory & Administration
+    { name: "search_users", category: "user administration" },
+    { name: "create_user", category: "user administration" },
+    { name: "view_all_users", category: "user administration" },
+    { name: "view_user_by_id", category: "user administration" },
+    { name: "update_user", category: "user administration" },
+    { name: "delete_user", category: "user administration" },
+    { name: "change_user_role", category: "user administration" },
+    // Role & Permission Management
+    { name: "view_roles", category: "role management" },
+    { name: "view_capabilities", category: "role management" },
+    { name: "create_roles", category: "role management" },
+    { name: "create_capabilities", category: "role management" },
+    { name: "assign_capabilities_to_role", category: "role management" },
+    // Course Catalog & Management
+    { name: "view_courses", category: "course catalog" },
+    { name: "view_single_course", category: "course catalog" },
+    { name: "create_courses", category: "course management" },
+    { name: "update_course", category: "course management" },
+    { name: "delete_course", category: "course management" },
+    // Enrollment Control
+    { name: "enroll_courses", category: "enrollment" },
+    { name: "view_enrolled_courses_by_user_id", category: "enrollment" },
+    { name: "unenroll_courses", category: "enrollment" },
+    // Course Categories
+    { name: "view_course_categories", category: "course organization" },
+    { name: "create_course_categories", category: "course organization" },
+    // Module & Lesson Management
+    { name: "view_modules", category: "module management" },
+    { name: "create_modules", category: "module management" },
+    { name: "get_single_module", category: "module management" },
+    { name: "update_module", category: "module management" },
+    { name: "delete_module", category: "module management" },
+    { name: "reorder_module", category: "module management" },
+    { name: "update_module_completion_status", category: "module management" },
+    // Assessment Admin
+    { name: "create_assessments", category: "assessment admin" },
+    { name: "view_assessments", category: "assessment admin" },
+    { name: "view_assessment_by_id", category: "assessment admin" },
+    { name: "update_assessments", category: "assessment admin" },
+    { name: "delete_assessments", category: "assessment admin" },
+    { name: "toggle_assessment_status", category: "assessment admin" },
+    { name: "duplicate_assessment", category: "assessment admin" },
+    { name: "add_question_to_assessment", category: "assessment admin" },
+    { name: "update_question", category: "assessment admin" },
+    { name: "delete_question", category: "assessment admin" },
+    // Assessment Analytics
+    { name: "view_assessment_analytics", category: "assessment analytics" },
+    { name: "view_assessments_submissions", category: "assessment analytics" },
+    { name: "view_assessment_analytics_courselevel", category: "assessment analytics" },
+    // Assessment Grading
+    { name: "pending_grading", category: "assessment grading" },
+    { name: "give_grade_to_questions", category: "assessment grading" },
+    // Assessment Participation
+    { name: "view_all_enrolled_assessment", category: "assessment participation" },
+    { name: "view_enrolled_assessment_by_id", category: "assessment participation" },
+    { name: "start_taking_assessment", category: "assessment participation" },
+    { name: "save_answer", category: "assessment participation" },
+    { name: "submit_assessment", category: "assessment participation" },
+    { name: "get_user_result", category: "assessment participation" },
+    { name: "review_submission", category: "assessment participation" },
+    { name: "view_assessment_progress", category: "assessment participation" }
   ];
 
   for (const cap of capabilities) {
@@ -69,26 +93,20 @@ async function main() {
 
   // 3. Assign capabilities to roles
   const adminRole = await prisma.role.findUnique({ where: { name: "admin" } });
-  const trainerRole = await prisma.role.findUnique({
-    where: { name: "trainer" },
-  });
-  const traineeRole = await prisma.role.findUnique({
-    where: { name: "trainee" },
-  });
+  const trainerRole = await prisma.role.findUnique({ where: { name: "trainer" } });
+  const traineeRole = await prisma.role.findUnique({ where: { name: "trainee" } });
   const allCaps = await prisma.capability.findMany();
 
   // Assign all to admin
   for (const cap of allCaps) {
     await prisma.roleCapability.upsert({
-      where: {
-        roleId_capabilityId: { roleId: adminRole.id, capabilityId: cap.id },
-      },
+      where: { roleId_capabilityId: { roleId: adminRole.id, capabilityId: cap.id } },
       update: {},
       create: { roleId: adminRole.id, capabilityId: cap.id },
     });
   }
 
-  // Trainer: selected caps
+  // Trainer: GRANTS (update these as your policy evolves)
   const trainerCaps = [
     "view_courses",
     "view_single_course",
@@ -99,40 +117,47 @@ async function main() {
     "create_modules",
     "update_module",
     "view_assessments",
-    "manage_assessments",
+    "create_assessments",
+    "update_assessments",
+    "add_question_to_assessment",
+    "update_question",
     "view_own_profile",
     "update_own_profile",
+    "upload_profile_photo"
   ];
   for (const name of trainerCaps) {
     const cap = allCaps.find((c) => c.name === name);
     if (cap) {
       await prisma.roleCapability.upsert({
-        where: {
-          roleId_capabilityId: { roleId: trainerRole.id, capabilityId: cap.id },
-        },
+        where: { roleId_capabilityId: { roleId: trainerRole.id, capabilityId: cap.id } },
         update: {},
         create: { roleId: trainerRole.id, capabilityId: cap.id },
       });
     }
   }
 
-  // Trainee: selected caps
+  // Trainee: GRANTS
   const traineeCaps = [
     "view_courses",
     "view_single_course",
     "get_single_module",
     "view_modules",
-    "view_assessments",
+    "view_all_enrolled_assessment",
+    "start_taking_assessment",
+    "save_answer",
+    "submit_assessment",
+    "get_user_result",
+    "review_submission",
+    "view_assessment_progress",
     "view_own_profile",
     "update_own_profile",
+    "upload_profile_photo"
   ];
   for (const name of traineeCaps) {
     const cap = allCaps.find((c) => c.name === name);
     if (cap) {
       await prisma.roleCapability.upsert({
-        where: {
-          roleId_capabilityId: { roleId: traineeRole.id, capabilityId: cap.id },
-        },
+        where: { roleId_capabilityId: { roleId: traineeRole.id, capabilityId: cap.id } },
         update: {},
         create: { roleId: traineeRole.id, capabilityId: cap.id },
       });

@@ -14,7 +14,7 @@ const prisma = new PrismaClient();
  * POST /api/assessments/admin/assessments
  * Create new assessment with questions
  */
-router.post('/admin/assessments', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.post('/admin/assessments', authenticateToken, authorize('create_assessments'), async (req, res) => {
   try {
     const {
       title,
@@ -205,7 +205,7 @@ router.get('/admin/assessments', authenticateToken, authorize('view_assessments'
  * GET /api/assessments/admin/assessments/:id
  * Get single assessment details
  */
-router.get('/admin/assessments/:id', authenticateToken, authorize('view_assessments'), async (req, res) => {
+router.get('/admin/assessments/:id', authenticateToken, authorize('view_assessment_by_id'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -263,7 +263,7 @@ router.get('/admin/assessments/:id', authenticateToken, authorize('view_assessme
  * PUT /api/assessments/admin/assessments/:id
  * Update assessment
  */
-router.put('/admin/assessments/:id', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.put('/admin/assessments/:id', authenticateToken, authorize('update_assessments'), async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -328,7 +328,7 @@ router.put('/admin/assessments/:id', authenticateToken, authorize('manage_assess
  * DELETE /api/assessments/admin/assessments/:id
  * Delete assessment
  */
-router.delete('/admin/assessments/:id', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.delete('/admin/assessments/:id', authenticateToken, authorize('delete_assessments'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -354,7 +354,7 @@ router.delete('/admin/assessments/:id', authenticateToken, authorize('manage_ass
  * PATCH /api/assessments/admin/assessments/:id/toggle-status
  * Toggle assessment active status
  */
-router.patch('/admin/assessments/:id/toggle-status', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.patch('/admin/assessments/:id/toggle-status', authenticateToken, authorize('toggle_assessment_status'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -395,7 +395,7 @@ router.patch('/admin/assessments/:id/toggle-status', authenticateToken, authoriz
  * POST /api/assessments/admin/assessments/:id/duplicate
  * Duplicate an assessment
  */
-router.post('/admin/assessments/:id/duplicate', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.post('/admin/assessments/:id/duplicate', authenticateToken, authorize('duplicate_assessment'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -480,7 +480,7 @@ router.post('/admin/assessments/:id/duplicate', authenticateToken, authorize('ma
  * POST /api/assessments/admin/assessments/:id/questions
  * Add question to assessment
  */
-router.post('/admin/assessments/:id/questions', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.post('/admin/assessments/:id/questions', authenticateToken, authorize('add_question_to_assessment'), async (req, res) => {
   try {
     const { id } = req.params;
     const { questionText, questionType, marks, explanation, imageUrl, options } = req.body;
@@ -531,7 +531,7 @@ router.post('/admin/assessments/:id/questions', authenticateToken, authorize('ma
  * PUT /api/assessments/admin/questions/:id
  * Update question
  */
-router.put('/admin/questions/:id', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.put('/admin/questions/:id', authenticateToken, authorize('update_question'), async (req, res) => {
   try {
     const { id } = req.params;
     const { questionText, questionType, marks, explanation, imageUrl, isActive, options } = req.body;
@@ -596,7 +596,7 @@ router.put('/admin/questions/:id', authenticateToken, authorize('manage_assessme
  * DELETE /api/assessments/admin/questions/:id
  * Delete question
  */
-router.delete('/admin/questions/:id', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.delete('/admin/questions/:id', authenticateToken, authorize('delete_question'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -626,7 +626,7 @@ router.delete('/admin/questions/:id', authenticateToken, authorize('manage_asses
  * GET /api/assessments/admin/assessments/:id/analytics
  * Get detailed analytics for an assessment
  */
-router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('view_assessments'), async (req, res) => {
+router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('view_assessment_analytics'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -751,7 +751,7 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
  * GET /api/assessments/admin/assessments/:id/submissions
  * Get all submissions for an assessment
  */
-router.get('/admin/assessments/:id/submissions', authenticateToken, authorize('view_assessments'), async (req, res) => {
+router.get('/admin/assessments/:id/submissions', authenticateToken, authorize('view_assessments_submissions'), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -801,7 +801,7 @@ router.get('/admin/assessments/:id/submissions', authenticateToken, authorize('v
  * GET /api/assessments/admin/courses/:courseId/analytics
  * Get course-level assessment analytics
  */
-router.get('/admin/courses/:courseId/analytics', authenticateToken, authorize('view_assessments'), async (req, res) => {
+router.get('/admin/courses/:courseId/analytics', authenticateToken, authorize('view_assessment_analytics_courselevel'), async (req, res) => {
   try {
     const { courseId } = req.params;
 
@@ -866,7 +866,7 @@ router.get('/admin/courses/:courseId/analytics', authenticateToken, authorize('v
  * GET /api/assessments/admin/pending-grading
  * Get pending manual grading queue
  */
-router.get('/admin/pending-grading', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.get('/admin/pending-grading', authenticateToken, authorize('pending_grading'), async (req, res) => {
   try {
     const pendingSubmissions = await prisma.submissionAnswer.findMany({
       where: {
@@ -947,7 +947,7 @@ router.get('/admin/pending-grading', authenticateToken, authorize('manage_assess
  * POST /api/assessments/admin/submissions/:id/grade
  * Grade a manual submission answer
  */
-router.post('/admin/submissions/:id/grade', authenticateToken, authorize('manage_assessments'), async (req, res) => {
+router.post('/admin/submissions/:id/grade', authenticateToken, authorize('give_grade_to_questions'), async (req, res) => {
   try {
     const { id } = req.params;
     const { marksObtained } = req.body;
