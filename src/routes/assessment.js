@@ -318,7 +318,7 @@ router.post('/student/assessments/:id/start', authenticateToken, authorize('star
       questionType: q.questionType,
       marks: q.marks,
       imageUrl: q.imageUrl,
-      options: q.options
+      options: (q.options || []) 
         .sort((a, b) => a.order - b.order)
         .map(opt => ({
           id: opt.id,
