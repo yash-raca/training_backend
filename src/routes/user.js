@@ -292,6 +292,11 @@ router.get('/',
           photo: true,
           designation: true,
           roleId: true, 
+          role : {
+            select : {
+              name : true
+            }
+          },
           createdAt: true, 
           updatedAt: true 
         }

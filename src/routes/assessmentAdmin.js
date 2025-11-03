@@ -13,6 +13,7 @@ const prisma = new PrismaClient();
 /**
  * POST /api/assessments/admin/assessments
  * Create new assessment with questions
+ * MODIFIED: Removed showResults and allowReview fields
  */
 router.post('/admin/assessments', authenticateToken, authorize('create_assessments'), async (req, res) => {
   try {
@@ -25,8 +26,6 @@ router.post('/admin/assessments', authenticateToken, authorize('create_assessmen
       passingMarks,
       attempts,
       randomizeQuestions,
-      showResults,
-      allowReview,
       startDate,
       endDate,
       questions
@@ -50,8 +49,6 @@ router.post('/admin/assessments', authenticateToken, authorize('create_assessmen
         passingMarks: passingMarks || 40,
         attempts: attempts || 1,
         randomizeQuestions: randomizeQuestions || false,
-        showResults: showResults !== undefined ? showResults : true,
-        allowReview: allowReview || false,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
         questions: questions && questions.length > 0 ? {
@@ -152,18 +149,28 @@ router.get('/admin/assessments', authenticateToken, authorize('view_assessments'
           }
         });
 
+        const checkedSubmissions = await prisma.assessmentSubmission.count({
+          where: {
+            assessmentId: assessment.id,
+            status: 'COMPLETED',
+            isCheckedByTeacher: true
+          }
+        });
+
         const passedSubmissions = await prisma.assessmentSubmission.count({
           where: {
             assessmentId: assessment.id,
             status: 'COMPLETED',
-            isPassed: true
+            isPassed: true,
+            isCheckedByTeacher: true
           }
         });
 
         const avgScore = await prisma.assessmentSubmission.aggregate({
           where: {
             assessmentId: assessment.id,
-            status: 'COMPLETED'
+            status: 'COMPLETED',
+            isCheckedByTeacher: true
           },
           _avg: {
             percentage: true
@@ -176,9 +183,11 @@ router.get('/admin/assessments', authenticateToken, authorize('view_assessments'
             totalQuestions: assessment._count.questions,
             totalSubmissions: assessment._count.submissions,
             completedSubmissions: completedSubmissions,
+            checkedSubmissions: checkedSubmissions,
+            pendingReview: completedSubmissions - checkedSubmissions,
             passedSubmissions: passedSubmissions,
-            passRate: completedSubmissions > 0 
-              ? parseFloat(((passedSubmissions / completedSubmissions) * 100).toFixed(2))
+            passRate: checkedSubmissions > 0 
+              ? parseFloat(((passedSubmissions / checkedSubmissions) * 100).toFixed(2))
               : 0,
             averageScore: parseFloat(avgScore._avg.percentage?.toFixed(2)) || 0
           }
@@ -262,6 +271,7 @@ router.get('/admin/assessments/:id', authenticateToken, authorize('view_assessme
 /**
  * PUT /api/assessments/admin/assessments/:id
  * Update assessment
+ * MODIFIED: Removed showResults and allowReview fields
  */
 router.put('/admin/assessments/:id', authenticateToken, authorize('update_assessments'), async (req, res) => {
   try {
@@ -275,8 +285,6 @@ router.put('/admin/assessments/:id', authenticateToken, authorize('update_assess
       passingMarks,
       attempts,
       randomizeQuestions,
-      showResults,
-      allowReview,
       startDate,
       endDate,
       isActive
@@ -293,8 +301,6 @@ router.put('/admin/assessments/:id', authenticateToken, authorize('update_assess
         ...(passingMarks !== undefined && { passingMarks }),
         ...(attempts && { attempts }),
         ...(randomizeQuestions !== undefined && { randomizeQuestions }),
-        ...(showResults !== undefined && { showResults }),
-        ...(allowReview !== undefined && { allowReview }),
         ...(startDate !== undefined && { startDate: startDate ? new Date(startDate) : null }),
         ...(endDate !== undefined && { endDate: endDate ? new Date(endDate) : null }),
         ...(isActive !== undefined && { isActive })
@@ -394,6 +400,7 @@ router.patch('/admin/assessments/:id/toggle-status', authenticateToken, authoriz
 /**
  * POST /api/assessments/admin/assessments/:id/duplicate
  * Duplicate an assessment
+ * MODIFIED: Removed showResults and allowReview fields
  */
 router.post('/admin/assessments/:id/duplicate', authenticateToken, authorize('duplicate_assessment'), async (req, res) => {
   try {
@@ -427,8 +434,6 @@ router.post('/admin/assessments/:id/duplicate', authenticateToken, authorize('du
         passingMarks: original.passingMarks,
         attempts: original.attempts,
         randomizeQuestions: original.randomizeQuestions,
-        showResults: original.showResults,
-        allowReview: original.allowReview,
         isActive: false,
         questions: {
           create: original.questions.map(q => ({
@@ -619,12 +624,412 @@ router.delete('/admin/questions/:id', authenticateToken, authorize('delete_quest
 });
 
 // ============================================
+// SUBMISSION GRADING & REVIEW (NEW/MODIFIED)
+// ============================================
+
+/**
+ * GET /api/assessments/admin/pending-grading
+ * Get pending manual grading queue
+ * MODIFIED: Now groups by submission to show overall status
+ */
+router.get('/admin/pending-grading', authenticateToken, authorize('pending_grading'), async (req, res) => {
+  try {
+    // Get submissions with pending manual grading
+    const pendingSubmissions = await prisma.assessmentSubmission.findMany({
+      where: {
+        status: 'COMPLETED',
+        isCheckedByTeacher: false
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true
+          }
+        },
+        assessment: {
+          select: {
+            id: true,
+            title: true,
+            course: {
+              select: {
+                title: true
+              }
+            }
+          }
+        },
+        answers: {
+          include: {
+            question: {
+              select: {
+                id: true,
+                questionText: true,
+                questionType: true,
+                marks: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        endTime: 'asc'
+      }
+    });
+
+    const formattedQueue = pendingSubmissions.map(submission => {
+      // Find manual grading questions
+      const manualQuestions = submission.answers.filter(answer =>
+        (answer.question.questionType === 'SHORT_ANSWER' || 
+         answer.question.questionType === 'LONG_ANSWER') &&
+        answer.textAnswer !== null
+      );
+
+      const ungradedQuestions = manualQuestions.filter(ans => ans.marksObtained === 0);
+
+      return {
+        submissionId: submission.id,
+        assessmentId: submission.assessment.id,
+        assessmentTitle: submission.assessment.title,
+        courseName: submission.assessment.course.title,
+        studentId: submission.user.id,
+        studentName: submission.user.fullName || submission.user.email,
+        studentEmail: submission.user.email,
+        attemptNumber: submission.attemptNumber,
+        submittedAt: submission.endTime,
+        totalManualQuestions: manualQuestions.length,
+        ungradedQuestions: ungradedQuestions.length,
+        isFullyGraded: ungradedQuestions.length === 0,
+        obtainedMarks: submission.obtainedMarks,
+        totalMarks: submission.totalMarks,
+        currentPercentage: submission.percentage
+      };
+    });
+
+    res.json({
+      success: true,
+      count: formattedQueue.length,
+      data: formattedQueue
+    });
+  } catch (error) {
+    console.error('Error fetching pending grading:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching pending grading',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/assessments/admin/submissions/:id/details
+ * Get detailed submission for grading (NEW ENDPOINT)
+ */
+router.get('/admin/submissions/:id/details', authenticateToken, authorize('view_submission_details'), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const submission = await prisma.assessmentSubmission.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+            designation: true
+          }
+        },
+        assessment: {
+          select: {
+            id: true,
+            title: true,
+            totalMarks: true,
+            passingMarks: true,
+            course: {
+              select: {
+                title: true
+              }
+            }
+          }
+        },
+        answers: {
+          include: {
+            question: {
+              include: {
+                options: true
+              }
+            },
+            selectedOption: true
+          },
+          orderBy: {
+            question: {
+              order: 'asc'
+            }
+          }
+        }
+      }
+    });
+
+    if (!submission) {
+      return res.status(404).json({
+        success: false,
+        message: 'Submission not found'
+      });
+    }
+
+    const formattedAnswers = submission.answers.map(answer => ({
+      answerId: answer.id,
+      questionId: answer.question.id,
+      questionText: answer.question.questionText,
+      questionType: answer.question.questionType,
+      maxMarks: answer.question.marks,
+      marksObtained: answer.marksObtained,
+      isCorrect: answer.isCorrect,
+      studentAnswer: answer.selectedOption?.optionText || answer.textAnswer,
+      correctAnswer: answer.question.options?.find(opt => opt.isCorrect)?.optionText,
+      allOptions: answer.question.options?.map(opt => ({
+        id: opt.id,
+        text: opt.optionText,
+        isCorrect: opt.isCorrect,
+        wasSelected: opt.id === answer.selectedOptionId
+      })),
+      explanation: answer.question.explanation,
+      needsGrading: (answer.question.questionType === 'SHORT_ANSWER' || 
+                     answer.question.questionType === 'LONG_ANSWER') && 
+                    answer.marksObtained === 0 && 
+                    answer.textAnswer !== null
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        submissionId: submission.id,
+        student: submission.user,
+        assessment: submission.assessment,
+        attemptNumber: submission.attemptNumber,
+        obtainedMarks: submission.obtainedMarks,
+        totalMarks: submission.totalMarks,
+        percentage: submission.percentage,
+        isPassed: submission.isPassed,
+        timeSpent: submission.timeSpent,
+        submittedAt: submission.endTime,
+        isCheckedByTeacher: submission.isCheckedByTeacher,
+        checkedAt: submission.checkedAt,
+        answers: formattedAnswers,
+        gradingStatus: {
+          total: formattedAnswers.length,
+          graded: formattedAnswers.filter(a => !a.needsGrading).length,
+          needsGrading: formattedAnswers.filter(a => a.needsGrading).length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching submission details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching submission details',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/assessments/admin/submissions/:id/grade
+ * Grade a manual submission answer
+ */
+router.post('/admin/submissions/:id/grade', authenticateToken, authorize('give_grade_to_questions'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { marksObtained } = req.body;
+
+    const answer = await prisma.submissionAnswer.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        question: true,
+        submission: {
+          include: {
+            assessment: true,
+            answers: true
+          }
+        }
+      }
+    });
+
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Answer not found'
+      });
+    }
+
+    // Validate marks
+    if (marksObtained < 0 || marksObtained > answer.question.marks) {
+      return res.status(400).json({
+        success: false,
+        message: `Marks must be between 0 and ${answer.question.marks}`
+      });
+    }
+
+    // Update answer with marks
+    await prisma.submissionAnswer.update({
+      where: { id: parseInt(id) },
+      data: {
+        marksObtained: marksObtained,
+        isCorrect: marksObtained === answer.question.marks
+      }
+    });
+
+    // Recalculate submission total - IMPORTANT: Get all answers including the one we just updated
+    const allAnswers = await prisma.submissionAnswer.findMany({
+      where: {
+        submissionId: answer.submissionId
+      }
+    });
+
+    const totalObtained = allAnswers.reduce((sum, ans) => {
+      // If this is the answer we just updated, use the new marksObtained
+      if (ans.id === parseInt(id)) {
+        return sum + marksObtained;
+      }
+      return sum + (ans.marksObtained || 0);
+    }, 0);
+
+    const totalMarks = answer.submission.assessment.totalMarks;
+    const percentage = parseFloat(((totalObtained / totalMarks) * 100).toFixed(2));
+    const isPassed = totalObtained >= answer.submission.assessment.passingMarks;
+
+    // Update submission with calculated percentage
+    const updatedSubmission = await prisma.assessmentSubmission.update({
+      where: { id: answer.submissionId },
+      data: {
+        obtainedMarks: parseInt(totalObtained),
+        percentage: percentage,
+        isPassed: isPassed
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Answer graded successfully',
+      data: {
+        marksAwarded: marksObtained,
+        maxMarks: answer.question.marks,
+        newTotalScore: totalObtained,
+        newPercentage: percentage,
+        isPassed: isPassed
+      }
+    });
+  } catch (error) {
+    console.error('Error grading answer:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error grading answer',
+      error: error.message
+    });
+  }
+});
+
+
+/**
+ * POST /api/assessments/admin/submissions/:id/approve-review
+ * Approve submission for student review after grading (NEW ENDPOINT)
+ */
+router.post('/admin/submissions/:id/approve-review', authenticateToken, authorize('approve_submission_review'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const teacherId = req.user.userId;
+
+    const submission = await prisma.assessmentSubmission.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        assessment: true,
+        answers: {
+          include: {
+            question: true
+          }
+        }
+      }
+    });
+
+    if (!submission) {
+      return res.status(404).json({
+        success: false,
+        message: 'Submission not found'
+      });
+    }
+
+    if (submission.status !== 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only completed submissions can be approved'
+      });
+    }
+
+    // Check if there are any ungraded short/long answer questions
+    const ungradedAnswers = submission.answers.filter(answer => 
+      (answer.question.questionType === 'SHORT_ANSWER' || 
+       answer.question.questionType === 'LONG_ANSWER') &&
+      answer.textAnswer !== null &&
+      answer.marksObtained === 0
+    );
+
+    if (ungradedAnswers.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot approve: ${ungradedAnswers.length} question(s) still need grading`
+      });
+    }
+
+    // Approve the submission
+    const updatedSubmission = await prisma.assessmentSubmission.update({
+      where: { id: parseInt(id) },
+      data: {
+        isCheckedByTeacher: true,
+        checkedBy: teacherId,
+        checkedAt: new Date()
+      },
+      include: {
+        user: {
+          select: {
+            email: true,
+            fullName: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Submission approved for student review',
+      data: {
+        submissionId: updatedSubmission.id,
+        studentName: updatedSubmission.user.fullName || updatedSubmission.user.email,
+        approvedAt: updatedSubmission.checkedAt,
+        obtainedMarks: updatedSubmission.obtainedMarks,
+        totalMarks: updatedSubmission.totalMarks,
+        percentage: updatedSubmission.percentage,
+        isPassed: updatedSubmission.isPassed
+      }
+    });
+  } catch (error) {
+    console.error('Error approving submission:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error approving submission',
+      error: error.message
+    });
+  }
+});
+
+// ============================================
 // ANALYTICS & REPORTS
 // ============================================
 
 /**
  * GET /api/assessments/admin/assessments/:id/analytics
  * Get detailed analytics for an assessment
+ * MODIFIED: Updated to include teacher review status
  */
 router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('view_assessment_analytics'), async (req, res) => {
   try {
@@ -638,7 +1043,8 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
             answers: {
               where: {
                 submission: {
-                  status: 'COMPLETED'
+                  status: 'COMPLETED',
+                  isCheckedByTeacher: true
                 }
               }
             }
@@ -667,12 +1073,12 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
       });
     }
 
-    // Overall statistics
-    const totalStudents = new Set(assessment.submissions.map(s => s.userId)).size;
-    const totalAttempts = assessment.submissions.length;
-    const passedCount = assessment.submissions.filter(s => s.isPassed).length;
+    const checkedSubmissions = assessment.submissions.filter(s => s.isCheckedByTeacher);
+    const totalStudents = new Set(checkedSubmissions.map(s => s.userId)).size;
+    const totalAttempts = checkedSubmissions.length;
+    const passedCount = checkedSubmissions.filter(s => s.isPassed).length;
     const avgScore = totalAttempts > 0
-      ? assessment.submissions.reduce((sum, s) => sum + s.percentage, 0) / totalAttempts
+      ? checkedSubmissions.reduce((sum, s) => sum + s.percentage, 0) / totalAttempts
       : 0;
 
     // Question-wise analysis
@@ -684,6 +1090,7 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
       return {
         questionId: question.id,
         questionText: question.questionText.substring(0, 100) + '...',
+        questionType: question.questionType,
         totalAttempts: totalAnswers,
         correctAttempts: correctAnswers,
         accuracy: parseFloat(accuracy.toFixed(2)),
@@ -691,7 +1098,7 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
       };
     });
 
-    // Score distribution
+    // Score distribution (only checked submissions)
     const scoreRanges = {
       '0-20': 0,
       '21-40': 0,
@@ -700,7 +1107,7 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
       '81-100': 0
     };
 
-    assessment.submissions.forEach(sub => {
+    checkedSubmissions.forEach(sub => {
       const percentage = sub.percentage;
       if (percentage <= 20) scoreRanges['0-20']++;
       else if (percentage <= 40) scoreRanges['21-40']++;
@@ -710,7 +1117,7 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
     });
 
     // Student-wise performance
-    const studentPerformance = assessment.submissions.map(sub => ({
+    const studentPerformance = checkedSubmissions.map(sub => ({
       studentId: sub.user.id,
       studentEmail: sub.user.email,
       attemptNumber: sub.attemptNumber,
@@ -719,13 +1126,17 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
       percentage: sub.percentage,
       isPassed: sub.isPassed,
       timeSpent: sub.timeSpent,
-      submittedAt: sub.endTime
+      submittedAt: sub.endTime,
+      checkedAt: sub.checkedAt
     }));
 
     res.json({
       success: true,
       data: {
         overview: {
+          totalSubmissions: assessment.submissions.length,
+          checkedSubmissions: checkedSubmissions.length,
+          pendingReview: assessment.submissions.length - checkedSubmissions.length,
           totalStudents,
           totalAttempts,
           passedCount,
@@ -750,6 +1161,7 @@ router.get('/admin/assessments/:id/analytics', authenticateToken, authorize('vie
 /**
  * GET /api/assessments/admin/assessments/:id/submissions
  * Get all submissions for an assessment
+ * MODIFIED: Added teacher review status
  */
 router.get('/admin/assessments/:id/submissions', authenticateToken, authorize('view_assessments_submissions'), async (req, res) => {
   try {
@@ -763,7 +1175,14 @@ router.get('/admin/assessments/:id/submissions', authenticateToken, authorize('v
         user: {
           select: {
             id: true,
-            email: true
+            email: true,
+            fullName: true
+          }
+        },
+        checkedByTeacher: {
+          select: {
+            id: true,
+            fullName: true
           }
         },
         answers: {
@@ -771,7 +1190,8 @@ router.get('/admin/assessments/:id/submissions', authenticateToken, authorize('v
             question: {
               select: {
                 questionText: true,
-                marks: true
+                marks: true,
+                questionType: true
               }
             }
           }
@@ -782,10 +1202,29 @@ router.get('/admin/assessments/:id/submissions', authenticateToken, authorize('v
       }
     });
 
+    const formattedSubmissions = submissions.map(sub => ({
+      submissionId: sub.id,
+      studentId: sub.user.id,
+      studentName: sub.user.fullName || sub.user.email,
+      studentEmail: sub.user.email,
+      attemptNumber: sub.attemptNumber,
+      status: sub.status,
+      obtainedMarks: sub.isCheckedByTeacher ? sub.obtainedMarks : null,
+      totalMarks: sub.totalMarks,
+      percentage: sub.isCheckedByTeacher ? sub.percentage : null,
+      isPassed: sub.isCheckedByTeacher ? sub.isPassed : null,
+      timeSpent: sub.timeSpent,
+      submittedAt: sub.endTime,
+      isCheckedByTeacher: sub.isCheckedByTeacher,
+      checkedBy: sub.checkedByTeacher?.fullName || null,
+      checkedAt: sub.checkedAt,
+      reviewStatus: sub.isCheckedByTeacher ? 'APPROVED_FOR_REVIEW' : 'PENDING_REVIEW'
+    }));
+
     res.json({
       success: true,
-      count: submissions.length,
-      data: submissions
+      count: formattedSubmissions.length,
+      data: formattedSubmissions
     });
   } catch (error) {
     console.error('Error fetching submissions:', error);
@@ -826,10 +1265,11 @@ router.get('/admin/courses/:courseId/analytics', authenticateToken, authorize('v
 
     const analytics = assessments.map(assessment => {
       const completedSubmissions = assessment.submissions;
-      const totalStudents = new Set(assessment.submissions.map(s => s.userId)).size;
-      const passedCount = completedSubmissions.filter(s => s.isPassed).length;
-      const averageScore = completedSubmissions.length > 0
-        ? completedSubmissions.reduce((sum, s) => sum + s.percentage, 0) / completedSubmissions.length
+      const checkedSubmissions = completedSubmissions.filter(s => s.isCheckedByTeacher);
+      const totalStudents = new Set(completedSubmissions.map(s => s.userId)).size;
+      const passedCount = checkedSubmissions.filter(s => s.isPassed).length;
+      const averageScore = checkedSubmissions.length > 0
+        ? checkedSubmissions.reduce((sum, s) => sum + s.percentage, 0) / checkedSubmissions.length
         : 0;
 
       return {
@@ -837,14 +1277,16 @@ router.get('/admin/courses/:courseId/analytics', authenticateToken, authorize('v
         title: assessment.title,
         totalQuestions: assessment._count.questions,
         totalStudents: totalStudents,
+        totalSubmissions: assessment._count.submissions,
+        checkedSubmissions: checkedSubmissions.length,
+        pendingReview: completedSubmissions.length - checkedSubmissions.length,
         completionRate: totalStudents > 0 
           ? parseFloat(((completedSubmissions.length / totalStudents) * 100).toFixed(2))
           : 0,
-        passRate: completedSubmissions.length > 0
-          ? parseFloat(((passedCount / completedSubmissions.length) * 100).toFixed(2))
+        passRate: checkedSubmissions.length > 0
+          ? parseFloat(((passedCount / checkedSubmissions.length) * 100).toFixed(2))
           : 0,
-        averageScore: parseFloat(averageScore.toFixed(2)),
-        totalAttempts: assessment._count.submissions
+        averageScore: parseFloat(averageScore.toFixed(2))
       };
     });
 
@@ -857,174 +1299,6 @@ router.get('/admin/courses/:courseId/analytics', authenticateToken, authorize('v
     res.status(500).json({
       success: false,
       message: 'Error fetching course analytics',
-      error: error.message
-    });
-  }
-});
-
-/**
- * GET /api/assessments/admin/pending-grading
- * Get pending manual grading queue
- */
-router.get('/admin/pending-grading', authenticateToken, authorize('pending_grading'), async (req, res) => {
-  try {
-    const pendingSubmissions = await prisma.submissionAnswer.findMany({
-      where: {
-        question: {
-          questionType: {
-            in: ['SHORT_ANSWER', 'LONG_ANSWER']
-          }
-        },
-        textAnswer: {
-          not: null
-        },
-        marksObtained: 0
-      },
-      include: {
-        submission: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                email: true
-              }
-            },
-            assessment: {
-              select: {
-                id: true,
-                title: true,
-                course: {
-                  select: {
-                    title: true
-                  }
-                }
-              }
-            }
-          }
-        },
-        question: {
-          select: {
-            id: true,
-            questionText: true,
-            marks: true,
-            explanation: true
-          }
-        }
-      },
-      orderBy: {
-        createdAt: 'asc'
-      }
-    });
-
-    const formattedQueue = pendingSubmissions.map(answer => ({
-      answerId: answer.id,
-      submissionId: answer.submission.id,
-      assessmentTitle: answer.submission.assessment.title,
-      courseName: answer.submission.assessment.course.title,
-      studentEmail: answer.submission.user.email,
-      questionText: answer.question.questionText,
-      studentAnswer: answer.textAnswer,
-      maxMarks: answer.question.marks,
-      submittedAt: answer.createdAt
-    }));
-
-    res.json({
-      success: true,
-      count: formattedQueue.length,
-      data: formattedQueue
-    });
-  } catch (error) {
-    console.error('Error fetching pending grading:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error fetching pending grading',
-      error: error.message
-    });
-  }
-});
-
-/**
- * POST /api/assessments/admin/submissions/:id/grade
- * Grade a manual submission answer
- */
-router.post('/admin/submissions/:id/grade', authenticateToken, authorize('give_grade_to_questions'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { marksObtained } = req.body;
-
-    const answer = await prisma.submissionAnswer.findUnique({
-      where: { id: parseInt(id) },
-      include: {
-        question: true,
-        submission: {
-          include: {
-            assessment: true
-          }
-        }
-      }
-    });
-
-    if (!answer) {
-      return res.status(404).json({
-        success: false,
-        message: 'Answer not found'
-      });
-    }
-
-    // Validate marks
-    if (marksObtained < 0 || marksObtained > answer.question.marks) {
-      return res.status(400).json({
-        success: false,
-        message: `Marks must be between 0 and ${answer.question.marks}`
-      });
-    }
-
-    // Update answer with marks
-    await prisma.submissionAnswer.update({
-      where: { id: parseInt(id) },
-      data: {
-        marksObtained: marksObtained,
-        isCorrect: marksObtained === answer.question.marks
-      }
-    });
-
-    // Recalculate submission total
-    const allAnswers = await prisma.submissionAnswer.findMany({
-      where: {
-        submissionId: answer.submissionId
-      }
-    });
-
-    const totalObtained = allAnswers.reduce((sum, ans) => sum + ans.marksObtained, 0);
-    const percentage = (totalObtained / answer.submission.totalMarks) * 100;
-    const isPassed = totalObtained >= answer.submission.assessment.passingMarks;
-
-    // Update submission
-    await prisma.assessmentSubmission.update({
-      where: { id: answer.submissionId },
-      data: {
-        obtainedMarks: totalObtained,
-        percentage: percentage,
-        isPassed: isPassed
-      }
-    });
-
-    res.json({
-      success: true,
-      message: 'Answer graded successfully',
-      data: {
-        marksAwarded: marksObtained,
-        maxMarks: answer.question.marks,
-        newTotalScore: totalObtained,
-        newPercentage: parseFloat(percentage.toFixed(2)),
-        isPassed: isPassed
-      }
-    });
-  } catch (error) {
-    console.error('Error grading answer:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error grading answer',
       error: error.message
     });
   }

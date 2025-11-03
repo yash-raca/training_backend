@@ -84,7 +84,8 @@ router.get('/student/my-assessments', authenticateToken, authorize('view_all_enr
             percentage: latestSubmission.percentage,
             obtainedMarks: latestSubmission.obtainedMarks,
             isPassed: latestSubmission.isPassed,
-            submittedAt: latestSubmission.endTime
+            submittedAt: latestSubmission.endTime,
+            isCheckedByTeacher: latestSubmission.isCheckedByTeacher
           } : null,
           canStart: isAvailable && attemptsRemaining > 0 && status !== 'IN_PROGRESS',
           canResume: latestSubmission?.status === 'IN_PROGRESS',
@@ -293,12 +294,20 @@ router.post('/student/assessments/:id/start', authenticateToken, authorize('star
     if (inProgressSubmission) {
       submission = inProgressSubmission;
     } else {
-      // Create new submission
+      // Validate totalMarks before creating submission
+      if (!assessment.totalMarks || assessment.totalMarks <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Assessment has invalid total marks configuration'
+        });
+      }
+
+      // Create new submission with validated totalMarks
       submission = await prisma.assessmentSubmission.create({
         data: {
           assessmentId: parseInt(id),
           userId: userId,
-          totalMarks: assessment.totalMarks,
+          totalMarks: parseInt(assessment.totalMarks), // Ensure it's an integer
           attemptNumber: existingAttempts + 1,
           status: 'IN_PROGRESS'
         }
@@ -351,6 +360,7 @@ router.post('/student/assessments/:id/start', authenticateToken, authorize('star
   }
 });
 
+
 /**
  * POST /api/assessments/student/save-answer
  * Save/update answer for a question
@@ -402,6 +412,7 @@ router.post('/student/save-answer', authenticateToken, authorize('save_answer'),
         marksObtained = question.marks;
       }
     }
+    // SHORT_ANSWER and LONG_ANSWER: marks will be set by teacher (marksObtained remains 0)
 
     // Save or update answer
     await prisma.submissionAnswer.upsert({
@@ -453,6 +464,14 @@ router.post('/student/assessments/:id/submit', authenticateToken, authorize('sub
     const { submissionId } = req.body;
     const userId = req.user.userId;
 
+    // Validate submissionId
+    if (!submissionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'submissionId is required'
+      });
+    }
+
     // Get submission with answers
     const submission = await prisma.assessmentSubmission.findFirst({
       where: {
@@ -470,13 +489,22 @@ router.post('/student/assessments/:id/submit', authenticateToken, authorize('sub
     if (!submission) {
       return res.status(404).json({
         success: false,
-        message: 'Submission not found'
+        message: 'Submission not found or already completed'
       });
     }
 
-    // Calculate total marks
-    const obtainedMarks = submission.answers.reduce((total, answer) => total + answer.marksObtained, 0);
-    const percentage = (obtainedMarks / submission.totalMarks) * 100;
+    // Calculate total marks using assessment.totalMarks instead
+    const totalMarks = submission.assessment.totalMarks;
+    if (!totalMarks || totalMarks <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Assessment has invalid total marks'
+      });
+    }
+
+    // Calculate obtained marks
+    const obtainedMarks = submission.answers.reduce((total, answer) => total + (answer.marksObtained || 0), 0);
+    const percentage = parseFloat(((obtainedMarks / totalMarks) * 100).toFixed(2));
     const isPassed = obtainedMarks >= submission.assessment.passingMarks;
 
     // Calculate time spent
@@ -488,32 +516,20 @@ router.post('/student/assessments/:id/submit', authenticateToken, authorize('sub
       data: {
         endTime: new Date(),
         status: 'COMPLETED',
-        obtainedMarks,
-        percentage,
-        isPassed,
-        timeSpent
+        obtainedMarks: parseInt(obtainedMarks),
+        percentage: percentage,
+        isPassed: isPassed,
+        timeSpent: timeSpent,
+        isCheckedByTeacher: false
       },
       include: {
-        assessment: {
-          select: {
-            title: true,
-            showResults: true,
-            allowReview: true
-          }
-        },
         answers: {
           include: {
             question: {
               select: {
                 questionText: true,
-                explanation: true,
-                marks: true
-              }
-            },
-            selectedOption: {
-              select: {
-                optionText: true,
-                isCorrect: true
+                marks: true,
+                questionType: true
               }
             }
           }
@@ -521,31 +537,20 @@ router.post('/student/assessments/:id/submit', authenticateToken, authorize('sub
       }
     });
 
-    // Prepare response based on assessment settings
-    let responseData = {
-      submissionId: updatedSubmission.id,
-      obtainedMarks,
-      totalMarks: submission.totalMarks,
-      percentage: parseFloat(percentage.toFixed(2)),
-      isPassed,
-      timeSpent
-    };
-
-    if (submission.assessment.showResults) {
-      responseData.results = updatedSubmission.answers.map(answer => ({
-        questionText: answer.question.questionText,
-        selectedAnswer: answer.selectedOption?.optionText || answer.textAnswer,
-        isCorrect: answer.isCorrect,
-        marksObtained: answer.marksObtained,
-        totalMarks: answer.question.marks,
-        explanation: submission.assessment.allowReview ? answer.question.explanation : null
-      }));
-    }
-
+    // Response: Show pending message
     res.json({
       success: true,
       message: 'Assessment submitted successfully',
-      data: responseData
+      data: {
+        submissionId: updatedSubmission.id,
+        status: 'PENDING_REVIEW',
+        message: 'Your assessment has been submitted. Results will be available once the teacher reviews your submission.',
+        submittedAt: updatedSubmission.endTime,
+        timeSpent: timeSpent,
+        obtainedMarks: obtainedMarks,
+        totalMarks: totalMarks,
+        percentage: percentage
+      }
     });
   } catch (error) {
     console.error('Error submitting assessment:', error);
@@ -557,9 +562,12 @@ router.post('/student/assessments/:id/submit', authenticateToken, authorize('sub
   }
 });
 
+
+
 /**
  * GET /api/assessments/student/my-results
  * Get all results for the logged-in student
+ * MODIFIED: Shows pending message if not checked by teacher
  */
 router.get('/student/my-results', authenticateToken, authorize('get_user_result'), async (req, res) => {
   try {
@@ -589,19 +597,45 @@ router.get('/student/my-results', authenticateToken, authorize('get_user_result'
       }
     });
 
-    const results = submissions.map(sub => ({
-      submissionId: sub.id,
-      assessmentId: sub.assessmentId,
-      assessmentTitle: sub.assessment.title,
-      courseName: sub.assessment.course.title,
-      attemptNumber: sub.attemptNumber,
-      obtainedMarks: sub.obtainedMarks,
-      totalMarks: sub.totalMarks,
-      percentage: sub.percentage,
-      isPassed: sub.isPassed,
-      timeSpent: sub.timeSpent,
-      submittedAt: sub.endTime
-    }));
+    const results = submissions.map(sub => {
+      // If not checked by teacher, hide marks
+      if (!sub.isCheckedByTeacher) {
+        return {
+          submissionId: sub.id,
+          assessmentId: sub.assessmentId,
+          assessmentTitle: sub.assessment.title,
+          courseName: sub.assessment.course.title,
+          attemptNumber: sub.attemptNumber,
+          submittedAt: sub.endTime,
+          status: 'PENDING_REVIEW',
+          message: 'Your assessment has been submitted and result is pending teacher review',
+          obtainedMarks: null,
+          totalMarks: null,
+          percentage: null,
+          isPassed: null,
+          canReview: false
+        };
+      }
+
+      // If checked by teacher, show all details
+      return {
+        submissionId: sub.id,
+        assessmentId: sub.assessmentId,
+        assessmentTitle: sub.assessment.title,
+        courseName: sub.assessment.course.title,
+        attemptNumber: sub.attemptNumber,
+        obtainedMarks: sub.obtainedMarks,
+        totalMarks: sub.assessment.totalMarks,  // ← FIXED: Use assessment.totalMarks
+        percentage: sub.percentage,
+        isPassed: sub.isPassed,
+        timeSpent: sub.timeSpent,
+        submittedAt: sub.endTime,
+        status: 'GRADED',
+        message: 'Your assessment has been reviewed. You can now view your detailed results.',
+        canReview: true,
+        checkedAt: sub.checkedAt
+      };
+    });
 
     res.json({
       success: true,
@@ -618,9 +652,11 @@ router.get('/student/my-results', authenticateToken, authorize('get_user_result'
   }
 });
 
+
 /**
  * GET /api/assessments/student/submissions/:id/review
  * Review a specific submission with detailed answers
+ * MODIFIED: Now checks isCheckedByTeacher instead of allowReview
  */
 router.get('/student/submissions/:id/review', authenticateToken, authorize('review_submission'), async (req, res) => {
   try {
@@ -637,8 +673,6 @@ router.get('/student/submissions/:id/review', authenticateToken, authorize('revi
         assessment: {
           select: {
             title: true,
-            allowReview: true,
-            showResults: true,
             course: {
               select: {
                 title: true
@@ -671,10 +705,11 @@ router.get('/student/submissions/:id/review', authenticateToken, authorize('revi
       });
     }
 
-    if (!submission.assessment.allowReview) {
+    // MODIFIED: Check if teacher has approved this submission for review
+    if (!submission.isCheckedByTeacher) {
       return res.status(403).json({
         success: false,
-        message: 'Review is not allowed for this assessment'
+        message: 'Your assessment has been submitted and result is pending teacher review. You will be able to review once the teacher completes grading.'
       });
     }
 
@@ -775,13 +810,21 @@ router.get('/student/courses/:courseId/progress', authenticateToken, authorize('
         maxAttempts: assessment.attempts,
         status: latestSubmission 
           ? (latestSubmission.status === 'IN_PROGRESS' ? 'IN_PROGRESS' : 
-             (latestSubmission.isPassed ? 'PASSED' : 'FAILED'))
+             (latestSubmission.isCheckedByTeacher ? 
+               (latestSubmission.isPassed ? 'PASSED' : 'FAILED') : 'PENDING_REVIEW'))
           : 'PENDING',
-        latestAttempt: latestSubmission || null,
+        latestAttempt: latestSubmission ? {
+          attemptNumber: latestSubmission.attemptNumber,
+          obtainedMarks: latestSubmission.isCheckedByTeacher ? latestSubmission.obtainedMarks : null,
+          percentage: latestSubmission.isCheckedByTeacher ? latestSubmission.percentage : null,
+          isPassed: latestSubmission.isCheckedByTeacher ? latestSubmission.isPassed : null,
+          submittedAt: latestSubmission.endTime,
+          isCheckedByTeacher: latestSubmission.isCheckedByTeacher
+        } : null,
         attemptsUsed: assessment.submissions.length,
         attemptsRemaining: assessment.attempts - assessment.submissions.length,
-        bestScore: completedSubmissions.length > 0 
-          ? Math.max(...completedSubmissions.map(s => s.percentage))
+        bestScore: completedSubmissions.filter(s => s.isCheckedByTeacher).length > 0 
+          ? Math.max(...completedSubmissions.filter(s => s.isCheckedByTeacher).map(s => s.percentage))
           : null
       };
     });

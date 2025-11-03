@@ -69,9 +69,12 @@ async function main() {
     { name: "view_assessment_analytics", category: "assessment analytics" },
     { name: "view_assessments_submissions", category: "assessment analytics" },
     { name: "view_assessment_analytics_courselevel", category: "assessment analytics" },
-    // Assessment Grading
+    // Assessment Grading (EXISTING)
     { name: "pending_grading", category: "assessment grading" },
     { name: "give_grade_to_questions", category: "assessment grading" },
+    // Assessment Submission Management (NEW)
+    { name: "approve_submission_review", category: "assessment grading" },
+    { name: "view_submission_details", category: "assessment grading" },
     // Assessment Participation
     { name: "view_all_enrolled_assessment", category: "assessment participation" },
     { name: "view_enrolled_assessment_by_id", category: "assessment participation" },
@@ -106,7 +109,7 @@ async function main() {
     });
   }
 
-  // Trainer: GRANTS (update these as your policy evolves)
+  // Trainer: GRANTS (UPDATED - Added new grading capabilities)
   const trainerCaps = [
     "view_courses",
     "view_single_course",
@@ -117,10 +120,21 @@ async function main() {
     "create_modules",
     "update_module",
     "view_assessments",
+    "view_assessment_by_id",
     "create_assessments",
     "update_assessments",
+    "toggle_assessment_status",
+    "duplicate_assessment",
     "add_question_to_assessment",
     "update_question",
+    "delete_question",
+    "view_assessment_analytics",
+    "view_assessments_submissions",
+    "view_assessment_analytics_courselevel",
+    "pending_grading",
+    "give_grade_to_questions",
+    "approve_submission_review", // NEW
+    "view_submission_details",    // NEW
     "view_own_profile",
     "update_own_profile",
     "upload_profile_photo"
@@ -136,13 +150,14 @@ async function main() {
     }
   }
 
-  // Trainee: GRANTS
+  // Trainee: GRANTS (UNCHANGED)
   const traineeCaps = [
     "view_courses",
     "view_single_course",
     "get_single_module",
     "view_modules",
     "view_all_enrolled_assessment",
+    "view_enrolled_assessment_by_id",
     "start_taking_assessment",
     "save_answer",
     "submit_assessment",
@@ -177,6 +192,7 @@ async function main() {
       designation: "System Administrator",
     },
   });
+
   const trainerUser = await prisma.user.upsert({
     where: { email: "trainer@example.com" },
     update: {},
@@ -189,6 +205,7 @@ async function main() {
       designation: "Senior Trainer",
     },
   });
+
   const traineeUser = await prisma.user.upsert({
     where: { email: "trainee@example.com" },
     update: {},
@@ -206,6 +223,7 @@ async function main() {
   let course = await prisma.course.findFirst({
     where: { title: "Sample Course" },
   });
+
   if (!course) {
     course = await prisma.course.create({
       data: {
@@ -215,6 +233,7 @@ async function main() {
       },
     });
   }
+
   await prisma.enrollment.upsert({
     where: { userId_courseId: { userId: traineeUser.id, courseId: course.id } },
     update: {},
@@ -225,10 +244,11 @@ async function main() {
     },
   });
 
-  // 6. Create sample assessment (if not exists)
+  // 6. Create sample assessment (if not exists) - UPDATED: Removed showResults and allowReview
   let assessment = await prisma.assessment.findFirst({
     where: { title: "Sample Quiz", courseId: course.id },
   });
+
   if (!assessment) {
     assessment = await prisma.assessment.create({
       data: {
@@ -239,9 +259,7 @@ async function main() {
         totalMarks: 10,
         passingMarks: 5,
         attempts: 1,
-        randomizeQuestions: false,
-        showResults: true,
-        allowReview: true,
+        randomizeQuestions: false
       },
     });
   }
@@ -250,6 +268,7 @@ async function main() {
   const q1 = await prisma.question.findFirst({
     where: { assessmentId: assessment.id, questionText: "What is 2+2?" },
   });
+
   if (!q1) {
     await prisma.question.create({
       data: {
@@ -258,6 +277,7 @@ async function main() {
         questionType: "MULTIPLE_CHOICE",
         marks: 5,
         order: 1,
+        explanation: "2 + 2 equals 4",
         options: {
           create: [
             { optionText: "3", isCorrect: false, order: 1 },
@@ -275,6 +295,7 @@ async function main() {
       questionText: "True or False: The sky is green.",
     },
   });
+
   if (!q2) {
     await prisma.question.create({
       data: {
@@ -283,6 +304,7 @@ async function main() {
         questionType: "TRUE_FALSE",
         marks: 5,
         order: 2,
+        explanation: "The sky is blue, not green",
         options: {
           create: [
             { optionText: "True", isCorrect: false, order: 1 },
@@ -293,7 +315,37 @@ async function main() {
     });
   }
 
+  // NEW: Create a sample SHORT_ANSWER question for grading demo
+  const q3 = await prisma.question.findFirst({
+    where: {
+      assessmentId: assessment.id,
+      questionText: "Explain the concept of variables in programming.",
+    },
+  });
+
+  if (!q3) {
+    await prisma.question.create({
+      data: {
+        assessmentId: assessment.id,
+        questionText: "Explain the concept of variables in programming.",
+        questionType: "SHORT_ANSWER",
+        marks: 5,
+        order: 3,
+        explanation: "Variables are named containers that store values. They are used to hold data that can be referenced and manipulated in a program.",
+      },
+    });
+  }
+
   console.log("✅ Seeding complete");
+  console.log("\n📝 Sample credentials:");
+  console.log("   Admin:   admin@example.com / password");
+  console.log("   Trainer: trainer@example.com / password");
+  console.log("   Trainee: trainee@example.com / password");
+  console.log("\n🔐 Default assessment workflow:");
+  console.log("   1. Trainee submits assessment");
+  console.log("   2. Trainer grades SHORT/LONG answer questions");
+  console.log("   3. Trainer approves submission for review");
+  console.log("   4. Trainee can now see results and review answers");
 }
 
 main()

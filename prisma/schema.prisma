@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   // output   = "../generated/prisma"
@@ -22,10 +19,10 @@ model User {
   id                    Int                    @id @default(autoincrement())
   email                 String                 @unique
   password              String
-  fullName              String? // NEW: Full Name
-  phoneNumber           String? // NEW: Phone Number
-  photo                 String? // NEW: Photo URL
-  designation           String? // NEW: Designation
+  fullName              String?
+  phoneNumber           String?
+  photo                 String?
+  designation           String?
   roleId                Int?
   role                  Role?                  @relation(fields: [roleId], references: [id])
   createdAt             DateTime               @default(now())
@@ -35,6 +32,7 @@ model User {
   enrollmentsByMe       Enrollment[]           @relation("EnrollmentEnroller")
   moduleProgresses      ModuleProgress[]
   assessmentSubmissions AssessmentSubmission[] @relation("AssessmentSubmissionUser")
+  checkedSubmissions    AssessmentSubmission[] @relation("SubmissionCheckedBy")
 }
 
 model Role {
@@ -47,7 +45,7 @@ model Role {
 model Capability {
   id               Int              @id @default(autoincrement())
   name             String           @unique
-  category         String // optional for now
+  category         String
   roleCapabilities RoleCapability[]
 }
 
@@ -141,10 +139,6 @@ model Assessment {
   attempts           Int                    @default(1)
   isActive           Boolean                @default(true)
   randomizeQuestions Boolean                @default(false)
-  showResults        Boolean                @default(true)
-  allowReview        Boolean                @default(false)
-  startDate          DateTime?
-  endDate            DateTime?
   createdAt          DateTime               @default(now())
   updatedAt          DateTime               @updatedAt
   questions          Question[]
@@ -187,23 +181,27 @@ model QuestionOption {
 }
 
 model AssessmentSubmission {
-  id            Int                @id @default(autoincrement())
-  assessmentId  Int
-  assessment    Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  userId        Int
-  user          User               @relation("AssessmentSubmissionUser", fields: [userId], references: [id], onDelete: Cascade)
-  startTime     DateTime           @default(now())
-  endTime       DateTime?
-  status        SubmissionStatus   @default(IN_PROGRESS)
-  totalMarks    Int
-  obtainedMarks Int                @default(0)
-  percentage    Float              @default(0)
-  isPassed      Boolean            @default(false)
-  attemptNumber Int                @default(1)
-  timeSpent     Int?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  answers       SubmissionAnswer[]
+  id                 Int                @id @default(autoincrement())
+  assessmentId       Int
+  assessment         Assessment         @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  userId             Int
+  user               User               @relation("AssessmentSubmissionUser", fields: [userId], references: [id], onDelete: Cascade)
+  startTime          DateTime           @default(now())
+  endTime            DateTime?
+  status             SubmissionStatus   @default(IN_PROGRESS)
+  totalMarks         Int
+  obtainedMarks      Int                @default(0)
+  percentage         Float              @default(0)
+  isPassed           Boolean            @default(false)
+  attemptNumber      Int                @default(1)
+  timeSpent          Int?
+  isCheckedByTeacher Boolean            @default(false)
+  checkedBy          Int?
+  checkedByTeacher   User?              @relation("SubmissionCheckedBy", fields: [checkedBy], references: [id], onDelete: SetNull)
+  checkedAt          DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  answers            SubmissionAnswer[]
 
   @@unique([assessmentId, userId, attemptNumber])
   @@map("assessment_submissions")
